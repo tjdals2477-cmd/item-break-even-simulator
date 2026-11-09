@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="ko"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>품목별 손익분기 시뮬레이터</title>
+  <!--
+    독립 웹앱의 공개 소스에는 품목 데이터가 없습니다. 브라우저에서 가져온 엑셀은 서버로 전송하지 않습니다.
+    형식: {"code":"품목코드","name":"품목명","inCost":입고원가,"incomingQty":입고수량,"price":개당판매가}
+    관리원가는 입고원가 × 1.19(판관비 15% + 영업외 비용 2% + 리스크 2%)로 자동 계산됩니다.
+    관리원가를 따로 정해 둔 품목만 "cost":관리원가 를 넣으면 자동 계산값 대신 쓰입니다.
+    inCost 외 값은 비워도 되며, 표에서 직접 입력할 수 있습니다.
+  -->
+  <script id="product-master" type="application/json">{
+    "디센스": [],
+    "안트(리브인)": [],
+    "디앤앤": []
+  }</script>
+  <style>
+    :root{--bg:#FAFAFF;--card:#fff;--line:#E4E4F0;--ink:#14142B;--muted:#6E7191;--indigo:#5B4FE5;--indigo-pale:#EEEDFE;--teal:#0A8A70;--teal-pale:#E1F5EE;--amber:#A65B22;--amber-pale:#FFF1E9;--red:#BD4250;--red-pale:#FDECEC;--shadow:0 5px 22px rgba(20,20,43,.045)}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 'Pretendard','Apple SD Gothic Neo','Malgun Gothic',Arial,sans-serif}
+    button,input,select{font:inherit}button{cursor:pointer}
+    button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #8C7CFF;outline-offset:2px}
+    .report{max-width:1560px;margin:0 auto;padding:36px 28px 90px}
+    .eyebrow{display:inline-block;border-radius:999px;background:var(--indigo-pale);color:var(--indigo);padding:5px 13px;font-size:12px;font-weight:800;letter-spacing:.05em}
+    .header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap}
+    .header h1{font-size:30px;line-height:1.28;letter-spacing:-.035em;margin:12px 0 6px}
+    .subtitle{color:var(--muted);font-size:13.5px;margin:0}
+    .brand-picker{display:flex;flex-direction:column;gap:5px}
+    .brand-picker label{font-size:11px;font-weight:850;color:var(--muted)}
+    .brand-picker select{min-width:220px;height:44px;border:1px solid #D8D6E8;border-radius:12px;background:#fff;padding:0 14px;font-size:15px;font-weight:850;color:var(--indigo)}
+    .btn{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:11px;padding:9px 13px;font-size:12px;font-weight:800;white-space:nowrap}
+    .btn:hover{border-color:var(--indigo);color:var(--indigo)}
+    .btn.primary{background:var(--indigo);border-color:var(--indigo);color:#fff}.btn.primary:hover{background:#4A3ED6;color:#fff}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+    .defaults{margin-top:24px;padding:14px 16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+    .defaults .cap{font-size:11px;font-weight:850;color:var(--muted);width:100%;margin-bottom:-4px}
+    .field{display:flex;flex-direction:column;gap:4px;min-width:120px;flex:1}
+    .field label{font-size:11px;color:var(--muted);font-weight:800}
+    .field input{height:36px;border:1px solid #D8D6E8;border-radius:9px;padding:5px 9px;text-align:right;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;background:#fff;color:var(--ink);width:100%}
+    .field input.text{text-align:left}
+    .field small{font-size:10.5px;color:var(--muted)}
+    .section{margin-top:34px}
+    .section-head{display:flex;justify-content:space-between;gap:14px;align-items:end;margin-bottom:14px;flex-wrap:wrap}
+    .section-title{font-size:19px;font-weight:850;letter-spacing:-.025em;margin:0}
+    .section-sub{font-size:12px;color:var(--muted);margin:3px 0 0;max-width:900px}
+    .head-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .file-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:20px 0 0}
+    .file-actions .hint{font-size:11px;color:var(--muted)}
+    .file-status{font-size:12px;color:var(--muted);margin:8px 0 0;min-height:18px}
+    .file-status.error{color:var(--red)}
+    .inventory-scenarios{display:grid;grid-template-columns:auto 1fr;gap:12px;margin-bottom:12px;align-items:stretch}
+    .inventory-scenario-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+    .inventory-scenario-controls>span{font-size:11px;font-weight:850;color:var(--muted);margin-right:4px}
+    .scenario-btn{border:1px solid #D8D6E8;background:#fff;border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:800;color:#4B4A62}
+    .scenario-btn[aria-pressed="true"]{background:var(--indigo);border-color:var(--indigo);color:#fff}
+    .scenario-btn.restore{border-style:dashed}
+    .inventory-scenario-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .inventory-scenario-summary>div{background:#fff;border:1px solid var(--line);border-radius:14px;padding:9px 13px;display:flex;flex-direction:column}
+    .inventory-scenario-summary span{font-size:11px;color:var(--muted);font-weight:800}
+    .inventory-scenario-summary strong{font-size:17px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+    .inventory-scenario-summary small{font-size:10.5px;color:var(--muted)}
+    .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:16px;background:var(--card);box-shadow:var(--shadow)}
+    table{border-collapse:collapse;width:100%;min-width:1500px}
+    thead th{font-size:11px;color:var(--muted);background:#FBFBFE;font-weight:850;text-align:right;padding:12px 13px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0}
+    thead th:first-child{text-align:left}
+    tbody td{font-size:12px;text-align:right;padding:11px 13px;border-bottom:1px solid #F0F0F7;white-space:nowrap;font-variant-numeric:tabular-nums}
+    tbody td:first-child{text-align:left;font-weight:800;min-width:230px;white-space:normal;line-height:1.35}
+    .table-product{display:flex;align-items:center;gap:10px}
+    .table-product .names{display:flex;flex-direction:column;min-width:0;flex:1}
+    .table-product .code{font-size:10.5px;color:var(--muted);font-weight:700}
+    .expand{border:1px solid var(--line);background:#fff;border-radius:8px;width:28px;height:28px;flex:none;color:var(--muted);font-size:13px;line-height:1}
+    .expand[aria-expanded="true"]{background:var(--indigo-pale);color:var(--indigo);border-color:#CFC9F8;transform:rotate(180deg)}
+    .operation-toggle{border:1px solid #BFE6D8;background:var(--teal-pale);color:var(--teal);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:850;flex:none}
+    .operation-toggle.off{border-color:#F3C9CF;background:var(--red-pale);color:var(--red)}
+    tr.comparison-paused>td{opacity:.48}
+    tr.comparison-paused>td:first-child{opacity:1}
+    .comparison-input{width:78px;height:34px;padding:5px 7px;border:1px solid #D8D6E8;border-radius:8px;background:#fff;color:var(--ink);font-size:12px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
+    .comparison-input.wide{width:96px}
+    .td-target{color:var(--muted)}
+    .td-good{color:var(--teal);font-weight:850}.td-warn{color:var(--amber);font-weight:850}.td-bad{color:var(--red);font-weight:850}
+    tfoot td{background:#F3F2FE;border-top:2px solid #CFC9F8;font-weight:850;color:var(--ink);padding:12px 13px;text-align:right;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
+    tfoot td:first-child{color:var(--indigo);text-align:left}
+    tr.detail>td{background:#FBFBFE;padding:16px 18px;text-align:left;white-space:normal}
+    .detail-grid{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:10px}
+    .detail-grid .span2{grid-column:span 2}
+    .be-strip{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:stretch}
+    .be{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 14px;min-width:180px}
+    .be span{display:block;font-size:11px;color:var(--muted);font-weight:800}
+    .be strong{font-size:16px;font-variant-numeric:tabular-nums}
+    .be.accent{border-color:#CFC9F8;background:var(--indigo-pale)}.be.accent strong{color:var(--indigo)}
+    .detail-actions{margin-left:auto;display:flex;align-items:flex-end}
+    .btn.danger:hover{border-color:var(--red);color:var(--red)}
+    .empty{padding:46px 20px;text-align:center;color:var(--muted);font-size:13px}
+    .empty strong{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+    .add-bar{display:flex;gap:8px;align-items:center;padding:12px 14px;border-top:1px solid var(--line);background:#fff}
+    .add-bar input{flex:1;max-width:420px;height:36px;border:1px solid #D8D6E8;border-radius:9px;padding:5px 10px;font-size:13px}
+    .add-bar small{color:var(--muted);font-size:11px}
+    .method{margin-top:22px;border-top:1px solid var(--line);padding-top:17px;font-size:11.5px;color:var(--muted)}
+    .method p{margin:5px 0}.method strong{color:#45445A}
+    @media(max-width:950px){.inventory-scenarios{grid-template-columns:1fr}.detail-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:680px){.report{padding:22px 16px 70px}.header h1{font-size:24px}.inventory-scenario-summary{grid-template-columns:1fr}.brand-picker select{width:100%}}
+  </style>
+</head>
+<body>
+<div class="report">
+  <header class="header">
+    <div>
+      <span class="eyebrow">INTERNAL · BREAK-EVEN SIMULATOR</span>
+      <h1>품목별 손익분기 시뮬레이터</h1>
+      <p class="subtitle">브랜드를 고르고 품목을 추가하면 판매가·수량·비용에 따른 손익과 손익분기점을 바로 계산합니다.</p>
+    </div>
+    <div class="brand-picker">
+      <label for="brandSelect">브랜드(업체)</label>
+      <select id="brandSelect"></select>
+    </div>
+  </header>
+
+  <div class="file-actions" aria-label="엑셀 파일 관리">
+    <button class="btn" id="templateButton" type="button">품목 입력 양식 다운로드</button>
+    <button class="btn" id="importButton" type="button">품목 엑셀 불러오기</button>
+    <button class="btn" id="saveWorkbookButton" type="button">현재 설정 엑셀 저장</button>
+    <input id="importFile" type="file" accept=".xlsx" hidden>
+    <span class="hint">엑셀은 이 브라우저에서만 처리됩니다. 팀원에게는 저장한 엑셀을 전달하세요.</span>
+  </div>
+  <p id="fileStatus" class="file-status" role="status" aria-live="polite"></p>
+
+  <section class="card defaults" aria-label="브랜드 기본값">
+    <div class="cap"><span id="defaultsBrand"></span> 기본값 · 품목별로 비워 둔 항목에 적용됩니다</div>
+    <div class="field"><label for="d-fee">채널 수수료율 (%)</label><input id="d-fee" type="number" step="0.1" min="0" data-default="fee" data-pct></div>
+    <div class="field"><label for="d-ship">배송·물류비 / 건 (원)</label><input id="d-ship" type="number" step="10" min="0" data-default="ship"></div>
+    <div class="field"><label for="d-ad">일 광고예산 (원)</label><input id="d-ad" type="number" step="1000" min="0" data-default="ad"></div>
+    <div class="field"><label for="d-target">목표 이익률 (%)</label><input id="d-target" type="number" step="1" data-default="target" data-pct></div>
+    <div class="field"><label for="d-days">계산 기간 (일)</label><input id="d-days" type="number" step="1" min="1" data-default="days"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title">한눈에 비교</h2>
+        <p class="section-sub">번들 구성과 판매 수량은 표에서 바로 바꿀 수 있습니다. 판매 수량은 실물 개수이며, 번들형은 구성수량의 배수로 입력합니다. 운영 OFF 품목은 합계와 입고 수량 시나리오에서 제외됩니다. 객단가는 할인 후 매출 ÷ 판매건수입니다. 관리원가 합계는 판매 수량 × 개당 관리원가로 계산합니다. 품목명 옆 ⌄ 를 누르면 판매가·비용과 손익분기점을 볼 수 있습니다.</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" id="exportButton" type="button">비교표 CSV 다운로드</button>
+      </div>
+    </div>
+
+    <div class="inventory-scenarios">
+      <div class="inventory-scenario-controls" role="group" aria-label="입고 수량 판매 시나리오">
+        <span>입고 수량 판매 시나리오</span>
+        <button type="button" class="scenario-btn" data-inventory-rate="0.25" aria-pressed="false">25% 판매</button>
+        <button type="button" class="scenario-btn" data-inventory-rate="0.5" aria-pressed="false">50% 판매</button>
+        <button type="button" class="scenario-btn" data-inventory-rate="1" aria-pressed="false">전체 판매</button>
+        <button type="button" class="scenario-btn restore" data-inventory-restore>기존 판매량 복원</button>
+      </div>
+      <div class="inventory-scenario-summary" id="scenarioSummary" aria-live="polite"></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>상품</th><th>금번 입고 수량</th><th>번들 구성</th><th>예상 판매건수</th><th>판매 수량</th><th>관리원가/개</th>
+          <th title="판매 수량 × 개당 관리원가">관리원가 합계</th><th>판매가</th><th>객단가</th><th>예상 매출</th><th>예상 이익</th>
+          <th>예상 이익률 [목표 이익률]</th><th title="설정한 목표 이익률을 달성하는 최소 판매가">목표 이익률 최소 판매가</th><th>판단</th>
+        </tr></thead>
+        <tbody id="comparisonBody"></tbody>
+        <tfoot id="comparisonFoot"></tfoot>
+      </table>
+      <div class="add-bar">
+        <input id="addInput" list="masterList" placeholder="품목코드 또는 품목명 입력 후 추가" autocomplete="off">
+        <datalist id="masterList"></datalist>
+        <button class="btn primary" id="addButton" type="button">품목 추가</button>
+        <small id="masterInfo"></small>
+      </div>
+    </div>
+
+    <footer class="method">
+      <p><strong>계산 기준</strong> 판매건수 = 판매 수량 ÷ 번들 구성수량. 판매가는 번들 1건 결제가(번들가 미입력 시 개당 판매가 × 구성수량)이며, 매출 = (판매가 − 할인) × 판매건수입니다. 이익 = 판매건수 × [결제가 ÷ (1+부가세) − (관리원가 + 추가 변동비) × 구성수량 − 배송·물류비 − 결제가 × 수수료율] − 일 광고예산 × 계산 기간 − 기타 고정비.</p>
+      <p><strong>원가 기준</strong> 관리원가 = 입고원가 × 1.19 (판관비 15% + 영업외 비용 2% + 리스크 2%). 관리원가를 직접 입력하면 자동 계산값 대신 입력값을 쓰며, 표에 ‘직접’으로 표시됩니다. 입력칸을 비우면 다시 자동 계산으로 돌아갑니다.</p>
+      <p><strong>손익분기</strong> 손익분기 판매가는 목표 이익률 0%일 때의 최소 판매가, 손익분기 판매건수는 현재 판매가에서 광고비·고정비를 모두 회수하는 최소 판매건수입니다. 이익률은 부가세 제외 매출 기준입니다.</p>
+      <p><strong>저장·공유</strong> 입력값은 이 브라우저에 자동 저장됩니다. 팀원과 같은 설정을 쓰려면 '현재 설정 엑셀 저장' 파일을 전달하고, 받는 사람이 '품목 엑셀 불러오기'로 엽니다.</p>
+    </footer>
+  </section>
+</div>
+
+<script src="./xlsx.full.min.js"></script>
+<script>
+(()=>{
+  const BRANDS=['디센스','안트(리브인)','디앤앤'];
+  const VAT=0.1;
+  // 관리원가 = 입고원가 × (1 + 가산율 합계). 직접 입력한 관리원가가 있으면 그 값을 우선한다.
+  const OVERHEAD=[['판관비',0.15],['영업외 비용',0.02],['리스크',0.02]];
+  const MARKUP=OVERHEAD.reduce((a,[,v])=>a+v,0);
+  const STORE_KEY='breakeven-simulator-v1';
+  const MASTER_KEY='breakeven-simulator-master-v1';
+  let master={};
+  try{master=JSON.parse(document.querySelector('#product-master').textContent)||{};}catch(e){master={};}
+  try{const stored=JSON.parse(localStorage.getItem(MASTER_KEY));if(stored&&typeof stored==='object')master=stored;}catch(e){}
+
+  const baseDefaults=()=>({fee:0.12,ship:2365,ad:10000,target:0.2,days:30});
+  const fresh=()=>({brand:BRANDS[0],open:null,defaults:Object.fromEntries(BRANDS.map(b=>[b,baseDefaults()])),rows:Object.fromEntries(BRANDS.map(b=>[b,[]])),baseline:Object.fromEntries(BRANDS.map(b=>[b,null])),preset:Object.fromEntries(BRANDS.map(b=>[b,null]))});
+  let state=fresh();
+  try{const saved=JSON.parse(localStorage.getItem(STORE_KEY));if(saved&&saved.rows){state={...state,...saved};for(const b of BRANDS){state.rows[b]=state.rows[b]||[];state.defaults[b]={...baseDefaults(),...(state.defaults[b]||{})};}}}catch(e){}
+  if(!BRANDS.includes(state.brand))state.brand=BRANDS[0];
+  const save=()=>{try{localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){}};
+  const saveMaster=()=>{try{localStorage.setItem(MASTER_KEY,JSON.stringify(master));}catch(e){}};
+
+  const fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
+  const ok=Number.isFinite;
+  const money=n=>ok(n)?`${fmt.format(Math.round(n))}원`:'—';
+  const minimumPrice=n=>ok(n)?`${fmt.format(Math.ceil(n))}원`:'—';
+  const count=(n,u='개')=>ok(n)?`${fmt.format(Math.round(n))}${u}`:'—';
+  const pct=n=>ok(n)?`${(n*100).toFixed(1)}%`:'—';
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num=v=>{if(v===''||v===null||v===undefined)return null;const n=Number(String(v).replace(/,/g,''));return ok(n)?n:null;};
+  const $=s=>document.querySelector(s);
+
+  const rows=()=>state.rows[state.brand];
+  const defs=()=>state.defaults[state.brand];
+  const findRow=id=>rows().find(r=>r.id===id);
+  const pick=(r,k)=>ok(r[k])?r[k]:defs()[k];
+  const autoCost=r=>ok(r.inCost)?r.inCost*(1+MARKUP):null;
+  const mgmtCost=r=>ok(r.cost)?r.cost:autoCost(r);
+
+  function calc(r){
+    const d=defs(),bundle=Math.max(1,Math.round(r.bundle||1));
+    const physicalInput=ok(r.physical)?r.physical:ok(r.incoming)?r.incoming:null;
+    const qty=ok(physicalInput)?Math.floor(Math.max(0,physicalInput)/bundle):null;
+    const physicalUnits=ok(qty)?qty*bundle:null;
+    const fee=pick(r,'fee'),ship=pick(r,'ship'),ad=pick(r,'ad'),target=pick(r,'target'),days=d.days||30;
+    const addVar=r.addVar||0,fixed=r.fixed||0,discount=r.discount||0;
+    const salePrice=bundle>1&&ok(r.bundlePrice)?r.bundlePrice:ok(r.price)?r.price*bundle:null;
+    const payment=ok(salePrice)?salePrice-discount:null;
+    const cost=mgmtCost(r);
+    const costReady=ok(cost)&&ok(fee)&&ok(ship)&&ok(ad);
+    const ready=costReady&&ok(payment)&&payment>0&&qty>0;
+    const revenue=ok(payment)&&payment>0&&ok(qty)?qty*payment:null;
+    const variable=costReady?(cost+addVar)*bundle+ship:null;
+    const fixedTotal=ok(ad)?ad*days+fixed:null;
+    const unitNet=ready?payment/(1+VAT)-variable-payment*fee:null;
+    const profit=ready?qty*unitNet-fixedTotal:null;
+    const margin=ready&&revenue>0?profit/(revenue/(1+VAT)):null;
+    const priceFor=t=>{const den=(1-t)/(1+VAT)-fee;return costReady&&qty>0&&ok(t)&&den>0?discount+(variable+fixedTotal/qty)/den:null;};
+    const required=priceFor(target);
+    const bePrice=priceFor(0);
+    const unitContribution=costReady&&ok(payment)&&payment>0?payment/(1+VAT)-variable-payment*fee:null;
+    const beOrders=ok(unitContribution)?(unitContribution>0?Math.ceil(fixedTotal/unitContribution):Infinity):null;
+    let status='입력 필요';
+    if(ready&&ok(required))status=salePrice>=required?'목표 충족':'가격 검토';
+    else if(ready)status='목표 확인';
+    if(r.active===false)status='운영 중단';
+    return {cost,bundle,qty,physicalUnits,salePrice,orderValue:ok(revenue)&&qty>0?revenue/qty:null,revenue,profit,margin,target,required,bePrice,beOrders,unitContribution,status,ready};
+  }
+
+  function renderBrand(){
+    const sel=$('#brandSelect');
+    if(!sel.options.length)sel.innerHTML=BRANDS.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');
+    sel.value=state.brand;
+    $('#defaultsBrand').textContent=state.brand;
+    for(const input of document.querySelectorAll('[data-default]')){
+      const v=defs()[input.dataset.default];
+      if(document.activeElement!==input)input.value=ok(v)?(input.hasAttribute('data-pct')?+(v*100).toFixed(2):v):'';
+    }
+    const list=master[state.brand]||[];
+    $('#masterList').innerHTML=list.map(p=>`<option value="${esc(p.code)} · ${esc(p.name)}"></option>`).join('');
+    $('#masterInfo').textContent=list.length?`등록 품목 ${fmt.format(list.length)}개`:'품목 마스터 미등록 · 품목명을 직접 입력해 추가할 수 있습니다';
+  }
+
+  const costPlaceholder=r=>ok(autoCost(r))?`자동 ${fmt.format(Math.round(autoCost(r)))}`:'입고원가 입력 시 자동';
+  const detailField=(r,key,label,opts={})=>{
+    const isPct=opts.pct,v=r[key];
+    const shown=ok(v)?(isPct?+(v*100).toFixed(2):v):(opts.text?(v||''):'');
+    const ph=opts.placeholder??(opts.def!==undefined&&ok(defs()[opts.def])?`기본 ${isPct?+(defs()[opts.def]*100).toFixed(2)+'%':fmt.format(defs()[opts.def])}`:'');
+    return `<div class="field ${opts.cls||''}"><label>${label}</label><input class="${opts.text?'text':''}" ${opts.text?'type="text"':'type="number" step="any"'} data-row-field="${key}" ${isPct?'data-pct':''} value="${esc(shown)}" placeholder="${esc(ph)}">${opts.hint?`<small>${opts.hint}</small>`:''}</div>`;
+  };
+
+  function render(){
+    renderBrand();
+    const body=$('#comparisonBody');
+    if(!rows().length){
+      body.innerHTML=`<tr><td colspan="14"><div class="empty"><strong>${esc(state.brand)} 품목이 없습니다</strong>아래 입력칸에서 품목을 추가하세요.</div></td></tr>`;
+      renderTotals();return;
+    }
+    body.innerHTML=rows().map(r=>{
+      const open=state.open===r.id;
+      return `<tr data-row="${r.id}"><td><div class="table-product"><button type="button" class="expand" data-expand="${r.id}" aria-expanded="${open}" aria-label="${esc(r.name)} 상세 설정">⌄</button><div class="names"><span>${esc(r.name||'이름 없음')}</span><span class="code">${esc(r.code||'코드 없음')}</span></div><button type="button" class="operation-toggle" data-toggle="${r.id}"></button></div></td>
+        <td></td>
+        <td><input class="comparison-input" type="number" min="1" step="1" inputmode="numeric" data-table-field="bundle" aria-label="${esc(r.name)} 번들 구성수량"></td>
+        <td></td>
+        <td><input class="comparison-input" type="number" min="0" step="1" inputmode="numeric" data-table-field="physical" aria-label="${esc(r.name)} 판매 수량"></td>
+        ${'<td></td>'.repeat(9)}</tr>`+(open?`<tr class="detail" data-detail="${r.id}"><td colspan="14">
+          <div class="detail-grid">
+            ${detailField(r,'code','품목코드',{text:true})}
+            ${detailField(r,'name','품목명',{text:true,cls:'span2'})}
+            ${detailField(r,'incoming','금번 입고 수량')}
+            ${detailField(r,'inCost','입고원가 / 개 (원)',{hint:`관리원가 = 입고원가 × ${(1+MARKUP).toFixed(2)}`})}
+            ${detailField(r,'cost','관리원가 / 개 (원)',{placeholder:costPlaceholder(r),hint:OVERHEAD.map(([k,v])=>`${k} ${v*100}%`).join(' + ')+' · 비우면 자동'})}
+            ${detailField(r,'price','개당 판매가 (원)',{hint:'부가세 포함'})}
+            ${detailField(r,'bundlePrice','번들 판매가 (원)',{hint:'번들 2개 이상일 때만 적용'})}
+            ${detailField(r,'discount','건당 할인 (원)')}
+            ${detailField(r,'fee','채널 수수료율 (%)',{pct:true,def:'fee'})}
+            ${detailField(r,'ship','배송·물류비 / 건 (원)',{def:'ship'})}
+            ${detailField(r,'addVar','추가 변동비 / 개 (원)',{hint:'포장·사은품 등'})}
+            ${detailField(r,'ad','일 광고예산 (원)',{def:'ad'})}
+            ${detailField(r,'fixed','기타 고정비 / 기간 (원)')}
+            ${detailField(r,'target','목표 이익률 (%)',{pct:true,def:'target'})}
+          </div>
+          <div class="be-strip" data-be="${r.id}"></div>
+        </td></tr>`:'');
+    }).join('');
+    for(const r of rows())updateRow(r);
+    renderTotals();
+  }
+
+  function updateRow(r){
+    const row=$(`tr[data-row="${r.id}"]`);if(!row)return;
+    const c=calc(r),cells=row.cells,active=r.active!==false;
+    row.classList.toggle('comparison-paused',!active);
+    const t=row.querySelector('[data-toggle]');t.textContent=active?'운영 ON':'운영 OFF';t.classList.toggle('off',!active);t.setAttribute('aria-pressed',String(active));
+    row.querySelector('.names span').textContent=r.name||'이름 없음';
+    row.querySelector('.names .code').textContent=r.code||'코드 없음';
+    cells[1].textContent=ok(r.incoming)?fmt.format(r.incoming):'—';
+    const bi=row.querySelector('[data-table-field="bundle"]');if(document.activeElement!==bi)bi.value=c.bundle;
+    cells[3].textContent=ok(c.qty)?fmt.format(c.qty):'—';
+    const pi=row.querySelector('[data-table-field="physical"]');if(document.activeElement!==pi)pi.value=ok(c.physicalUnits)?c.physicalUnits:'';
+    cells[5].innerHTML=money(c.cost)+(ok(c.cost)?` <span class="td-target">${ok(r.cost)?'직접':'자동'}</span>`:'');
+    cells[6].textContent=ok(c.cost)&&ok(c.physicalUnits)?money(c.cost*c.physicalUnits):'—';
+    const costInput=$(`[data-detail="${r.id}"] [data-row-field="cost"]`);if(costInput)costInput.placeholder=costPlaceholder(r);
+    cells[7].textContent=money(c.salePrice);
+    cells[8].textContent=money(c.orderValue);
+    cells[9].textContent=money(c.revenue);
+    cells[10].textContent=money(c.profit);
+    cells[10].className=ok(c.profit)?(c.profit>=0?'td-good':'td-bad'):'';
+    cells[11].innerHTML=`${pct(c.margin)} <span class="td-target">(${pct(c.target)})</span>`;
+    cells[12].textContent=minimumPrice(c.required);
+    cells[13].textContent=c.status;
+    cells[13].className=c.status==='목표 충족'?'td-good':c.status==='가격 검토'||c.status==='운영 중단'?'td-bad':'td-warn';
+    const be=$(`[data-be="${r.id}"]`);
+    if(be){
+      const beO=c.beOrders===Infinity?'도달 불가 (건당 적자)':ok(c.beOrders)?`${fmt.format(c.beOrders)}건 · ${fmt.format(c.beOrders*c.bundle)}개`:'—';
+      be.innerHTML=`<div class="be accent"><span>손익분기 판매가 (현재 수량 기준)</span><strong>${minimumPrice(c.bePrice)}</strong></div>
+        <div class="be accent"><span>손익분기 판매건수 (현재 판매가 기준)</span><strong>${beO}</strong></div>
+        <div class="be"><span>건당 공헌이익</span><strong>${money(c.unitContribution)}</strong></div>
+        <div class="be"><span>목표 이익률 최소 판매가</span><strong>${minimumPrice(c.required)}</strong></div>
+        <div class="detail-actions"><button type="button" class="btn danger" data-delete="${r.id}">품목 삭제</button></div>`;
+    }
+  }
+
+  function renderTotals(){
+    const active=rows().filter(r=>r.active!==false).map(r=>({r,c:calc(r)}));
+    const sum=(items,f)=>items.reduce((a,x)=>a+(ok(f(x))?f(x):0),0);
+    const revItems=active.filter(x=>ok(x.c.revenue)),profItems=active.filter(x=>ok(x.c.profit));
+    const orders=sum(revItems,x=>x.c.qty),revenue=sum(revItems,x=>x.c.revenue);
+    const profit=sum(profItems,x=>x.c.profit),profitRevenue=sum(profItems,x=>x.c.revenue);
+    const incoming=sum(active,x=>x.r.incoming),physical=sum(active,x=>x.c.physicalUnits);
+    const costTotal=sum(active,x=>ok(x.c.cost)&&ok(x.c.physicalUnits)?x.c.cost*x.c.physicalUnits:null);
+    const margin=profitRevenue>0?profit/(profitRevenue/(1+VAT)):null;
+    const met=active.filter(x=>x.c.status==='목표 충족').length;
+    $('#comparisonFoot').innerHTML=rows().length?`<tr><td>합계 · 운영 ON ${active.length}/${rows().length}개</td><td>${count(incoming)}</td><td></td><td>${count(orders,'건')}</td><td>${count(physical)}</td><td></td><td>${money(costTotal)}</td><td></td><td>${orders>0?money(revenue/orders):'—'}</td><td>${money(revenue)}</td><td class="${profit>=0?'td-good':'td-bad'}">${profItems.length?money(profit):'—'}</td><td>${pct(margin)}</td><td></td><td>목표 충족 ${met}/${active.length}</td></tr>`:'';
+    $('#scenarioSummary').innerHTML=`<div><span>${state.preset[state.brand]?`입고 ${Math.round(state.preset[state.brand]*100)}% 판매 시나리오`:'수동 조정'} · 실물 판매 수량</span><strong>${count(physical)} / ${count(incoming)}</strong><small>운영 ON 품목 기준 · 실제 판매 예측 아님</small></div>
+      <div><span>예상 매출</span><strong>${money(revenue)}</strong><small>계산 가능 ${revItems.length}/${active.length}개 운영 품목</small></div>
+      <div><span>기간 영업이익</span><strong class="${profit>=0?'td-good':'td-bad'}">${profItems.length?money(profit):'—'}</strong><small>광고비 ${defs().days}일 차감 · 계산 가능 ${profItems.length}/${active.length}개 운영 품목</small></div>`;
+    for(const b of document.querySelectorAll('[data-inventory-rate]'))b.setAttribute('aria-pressed',String(+b.dataset.inventoryRate===state.preset[state.brand]));
+  }
+
+  function refresh(r){if(r)updateRow(r);else for(const x of rows())updateRow(x);renderTotals();save();}
+
+  function addRow(text){
+    text=text.trim();if(!text)return;
+    const list=master[state.brand]||[];
+    const hit=list.find(p=>`${p.code} · ${p.name}`===text||p.code===text||p.name===text);
+    const r={id:'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),active:true,bundle:1,physical:null,discount:0,addVar:0,fixed:0};
+    if(hit)Object.assign(r,{code:hit.code,name:hit.name,inCost:num(hit.inCost),cost:num(hit.cost),incoming:num(hit.incomingQty),price:num(hit.price)});
+    else Object.assign(r,{code:'',name:text});
+    rows().push(r);state.open=r.id;state.preset[state.brand]=null;
+    $('#addInput').value='';render();save();
+  }
+
+  const INPUT_HEADERS=['브랜드','품목코드','품목명','운영 (ON/OFF)','입고원가/개','관리원가/개 (선택)','금번 입고 수량','판매 수량','번들 구성','단품 판매가','번들 판매가 (선택)','건당 할인','채널 수수료 (%)','배송·물류비/건','일 광고예산','목표 이익률 (%)','추가 변동비/개','기타 고정비/기간'];
+  const DEFAULT_HEADERS=['브랜드','채널 수수료 (%)','배송·물류비/건','일 광고예산','목표 이익률 (%)','계산 기간 (일)'];
+  const xval=v=>ok(v)?v:'';
+  const status=(message,error=false)=>{const el=$('#fileStatus');el.textContent=message;el.classList.toggle('error',error);};
+  function makeWorkbook(template=false){
+    const book=XLSX.utils.book_new();
+    const products=template?BRANDS.map(b=>[b]):BRANDS.flatMap(b=>state.rows[b].map(r=>[
+      b,r.code||'',r.name||'',r.active===false?'OFF':'ON',xval(r.inCost),xval(r.cost),
+      xval(r.incoming),xval(r.physical),xval(r.bundle),xval(r.price),xval(r.bundlePrice),
+      xval(r.discount),ok(r.fee)?r.fee*100:'',xval(r.ship),xval(r.ad),
+      ok(r.target)?r.target*100:'',xval(r.addVar),xval(r.fixed)
+    ]));
+    const productsSheet=XLSX.utils.aoa_to_sheet([INPUT_HEADERS,...products]);
+    productsSheet['!cols']=[{wch:16},{wch:18},{wch:32},{wch:18},...Array(14).fill({wch:20})];
+    XLSX.utils.book_append_sheet(book,productsSheet,'상품 입력');
+    const defaults=BRANDS.map(b=>{const d=template?baseDefaults():state.defaults[b];return [b,xval(d.fee)*100,xval(d.ship),xval(d.ad),xval(d.target)*100,xval(d.days)];});
+    const defaultsSheet=XLSX.utils.aoa_to_sheet([DEFAULT_HEADERS,...defaults]);
+    defaultsSheet['!cols']=[{wch:18},...Array(5).fill({wch:22})];
+    XLSX.utils.book_append_sheet(book,defaultsSheet,'브랜드 기본값');
+    return book;
+  }
+  function numberCell(v,row,label,{integer=false,min=0,max=Infinity}={}){
+    if(v===''||v===null||v===undefined)return null;
+    const n=Number(String(v).replace(/,/g,''));
+    if(!Number.isFinite(n)||n<min||n>max||(integer&&!Number.isInteger(n)))throw new Error(`${row}행 ${label}: ${integer?'0 이상의 정수':'숫자'}로 입력해 주세요.`);
+    return n;
+  }
+  function readWorkbook(book){
+    const sheet=book.Sheets['상품 입력'];
+    if(!sheet)throw new Error('상품 입력 시트가 없습니다. 이 프로그램의 양식을 사용해 주세요.');
+    const table=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
+    if(!INPUT_HEADERS.every((h,i)=>table[0]?.[i]===h))throw new Error('상품 입력 시트의 1행 항목명이 양식과 다릅니다.');
+    const nextRows=Object.fromEntries(BRANDS.map(b=>[b,[]]));
+    const nextMaster=Object.fromEntries(BRANDS.map(b=>[b,[]]));
+    for(let i=1;i<table.length;i++){
+      const v=table[i],name=String(v[2]??'').trim(),code=String(v[1]??'').trim();
+      if(!name&&!code)continue;
+      const brand=String(v[0]??'').trim(),line=i+1;
+      if(!BRANDS.includes(brand))throw new Error(`${line}행 브랜드를 디센스·안트(리브인)·디앤앤 중에서 선택해 주세요.`);
+      if(!name)throw new Error(`${line}행 품목명을 입력해 주세요.`);
+      const operation=String(v[3]??'ON').trim().toUpperCase()||'ON';
+      if(!['ON','OFF'].includes(operation))throw new Error(`${line}행 운영은 ON 또는 OFF로 입력해 주세요.`);
+      const n=(col,label,opts)=>numberCell(v[col],line,label,opts);
+      const r={id:'r'+line.toString(36)+Math.random().toString(36).slice(2,8),code,name,active:operation==='ON',
+        inCost:n(4,'입고원가'),cost:n(5,'관리원가'),incoming:n(6,'입고 수량',{integer:true}),
+        physical:n(7,'판매 수량',{integer:true}),bundle:n(8,'번들 구성',{integer:true,min:1})??1,
+        price:n(9,'단품 판매가'),bundlePrice:n(10,'번들 판매가'),discount:n(11,'건당 할인')??0,
+        fee:n(12,'채널 수수료',{max:100}),ship:n(13,'배송·물류비'),ad:n(14,'일 광고예산'),
+        target:n(15,'목표 이익률',{max:100}),addVar:n(16,'추가 변동비')??0,fixed:n(17,'기타 고정비')??0};
+      if(r.fee!==null)r.fee/=100;
+      if(r.target!==null)r.target/=100;
+      nextRows[brand].push(r);
+      nextMaster[brand].push({code,name,inCost:r.inCost,cost:r.cost,incomingQty:r.incoming,price:r.price});
+    }
+    if(!BRANDS.some(b=>nextRows[b].length))throw new Error('상품 입력 시트에 품목을 한 줄 이상 입력해 주세요.');
+    const nextDefaults=Object.fromEntries(BRANDS.map(b=>[b,baseDefaults()]));
+    const defaultSheet=book.Sheets['브랜드 기본값'];
+    if(defaultSheet){
+      const values=XLSX.utils.sheet_to_json(defaultSheet,{header:1,defval:'',raw:true});
+      if(!DEFAULT_HEADERS.every((h,i)=>values[0]?.[i]===h))throw new Error('브랜드 기본값 시트의 1행 항목명이 양식과 다릅니다.');
+      for(let i=1;i<values.length;i++){
+        const v=values[i],brand=String(v[0]??'').trim();if(!brand)continue;
+        if(!BRANDS.includes(brand))throw new Error(`브랜드 기본값 ${i+1}행 브랜드를 확인해 주세요.`);
+        const n=(col,label,opts)=>numberCell(v[col],i+1,label,opts),d=nextDefaults[brand];
+        const fee=n(1,'채널 수수료',{max:100}),ship=n(2,'배송·물류비'),ad=n(3,'일 광고예산'),target=n(4,'목표 이익률',{max:100}),days=n(5,'계산 기간',{integer:true,min:1,max:366});
+        if(fee!==null)d.fee=fee/100;if(ship!==null)d.ship=ship;if(ad!==null)d.ad=ad;if(target!==null)d.target=target/100;if(days!==null)d.days=days;
+      }
+    }
+    return {nextRows,nextMaster,nextDefaults};
+  }
+  $('#templateButton').addEventListener('click',()=>{XLSX.writeFileXLSX(makeWorkbook(true),'품목별_손익분기_입력양식.xlsx');status('빈 입력 양식을 다운로드했습니다.');});
+  $('#saveWorkbookButton').addEventListener('click',()=>{XLSX.writeFileXLSX(makeWorkbook(),'품목별_손익분기_현재설정.xlsx');status('현재 설정을 엑셀로 저장했습니다.');});
+  $('#importButton').addEventListener('click',()=>$('#importFile').click());
+  $('#importFile').addEventListener('change',async e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    try{
+      if(file.size>20*1024*1024)throw new Error('엑셀 파일은 20MB 이하로 올려 주세요.');
+      const parsed=readWorkbook(XLSX.read(await file.arrayBuffer(),{type:'array'}));
+      if(BRANDS.some(b=>state.rows[b].length)&&!confirm('현재 브라우저의 품목 설정을 엑셀 내용으로 교체할까요?'))return;
+      state.rows=parsed.nextRows;state.defaults=parsed.nextDefaults;
+      state.open=null;state.baseline=Object.fromEntries(BRANDS.map(b=>[b,null]));
+      state.preset=Object.fromEntries(BRANDS.map(b=>[b,null]));
+      master=parsed.nextMaster;saveMaster();save();render();
+      status(`${file.name}에서 ${BRANDS.reduce((n,b)=>n+state.rows[b].length,0)}개 품목을 불러왔습니다.`);
+    }catch(error){status(`불러오기 실패: ${error.message}`,true);}finally{e.target.value='';}
+  });
+
+  $('#brandSelect').addEventListener('change',e=>{state.brand=e.target.value;state.open=null;render();save();});
+  for(const input of document.querySelectorAll('[data-default]'))input.addEventListener('input',e=>{
+    const v=num(e.target.value);defs()[e.target.dataset.default]=v===null?null:(e.target.hasAttribute('data-pct')?v/100:v);
+    if(state.open)render();else refresh();save();
+  });
+  $('#addButton').addEventListener('click',()=>addRow($('#addInput').value));
+  $('#addInput').addEventListener('keydown',e=>{if(e.key==='Enter')addRow(e.target.value);});
+
+  const body=$('#comparisonBody');
+  body.addEventListener('click',e=>{
+    const ex=e.target.closest('[data-expand]'),tg=e.target.closest('[data-toggle]'),del=e.target.closest('[data-delete]');
+    if(ex){state.open=state.open===ex.dataset.expand?null:ex.dataset.expand;render();save();}
+    else if(tg){const r=findRow(tg.dataset.toggle);r.active=r.active===false;refresh(r);}
+    else if(del){const r=findRow(del.dataset.delete);if(confirm(`'${r.name||'이름 없음'}' 품목을 삭제할까요?`)){state.rows[state.brand]=rows().filter(x=>x.id!==r.id);state.open=null;render();save();}}
+  });
+  body.addEventListener('input',e=>{
+    const t=e.target,tr=t.closest('[data-row],[data-detail]');if(!tr)return;
+    const r=findRow(tr.dataset.row||tr.dataset.detail);if(!r)return;
+    if(t.dataset.tableField){
+      const v=num(t.value);
+      if(t.dataset.tableField==='bundle'){if(v!==null&&v>=1)r.bundle=Math.round(v);}
+      else r.physical=v;
+      state.preset[state.brand]=null;
+    }else if(t.dataset.rowField){
+      const k=t.dataset.rowField;
+      if(k==='code'||k==='name')r[k]=t.value;
+      else{const v=num(t.value);r[k]=v===null?null:(t.hasAttribute('data-pct')?v/100:v);}
+    }
+    refresh(r);
+  });
+  body.addEventListener('change',e=>{if(e.target.dataset.tableField){const r=findRow(e.target.closest('[data-row]').dataset.row);if(r){updateRow(r);}}});
+
+  for(const b of document.querySelectorAll('[data-inventory-rate]'))b.addEventListener('click',()=>{
+    const rate=+b.dataset.inventoryRate;
+    if(!state.baseline[state.brand])state.baseline[state.brand]=Object.fromEntries(rows().map(r=>[r.id,r.physical]));
+    for(const r of rows()){if(r.active===false||!ok(r.incoming))continue;const bundle=Math.max(1,r.bundle||1);r.physical=Math.floor(r.incoming*rate/bundle)*bundle;}
+    state.preset[state.brand]=rate;refresh();
+  });
+  $('[data-inventory-restore]').addEventListener('click',()=>{
+    const base=state.baseline[state.brand];if(!base)return;
+    for(const r of rows())if(r.id in base)r.physical=base[r.id];
+    state.baseline[state.brand]=null;state.preset[state.brand]=null;refresh();
+  });
+
+  $('#exportButton').addEventListener('click',()=>{
+    const head=['브랜드','품목코드','상품','운영','금번 입고 수량','번들 구성','예상 판매건수','판매 수량','입고원가/개','관리원가/개','관리원가 합계','판매가','객단가','예상 매출','예상 이익','예상 이익률','목표 이익률','목표 이익률 최소 판매가','손익분기 판매가','손익분기 판매건수','판단'];
+    const r0=n=>ok(n)?Math.round(n):'';
+    const lines=rows().map(r=>{const c=calc(r);return [state.brand,r.code||'',r.name||'',r.active===false?'OFF':'ON',r0(r.incoming),c.bundle,r0(c.qty),r0(c.physicalUnits),r0(r.inCost),r0(c.cost),ok(c.cost)&&ok(c.physicalUnits)?r0(c.cost*c.physicalUnits):'',r0(c.salePrice),r0(c.orderValue),r0(c.revenue),r0(c.profit),ok(c.margin)?(c.margin*100).toFixed(1)+'%':'',ok(c.target)?(c.target*100).toFixed(1)+'%':'',ok(c.required)?Math.ceil(c.required):'',ok(c.bePrice)?Math.ceil(c.bePrice):'',c.beOrders===Infinity?'도달 불가':r0(c.beOrders),c.status];});
+    const csv='﻿'+[head,...lines].map(l=>l.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+    const a=document.createElement('a');a.href=url;a.download=`손익분기_${state.brand}_${new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}).replace(/-/g,'')}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
+  });
+
+  render();
+})();
+</script>
+</body></html>
+
