@@ -118,9 +118,11 @@
   <div class="file-actions" aria-label="엑셀 파일 관리">
     <button class="btn" id="templateButton" type="button">품목 입력 양식 다운로드</button>
     <button class="btn" id="importButton" type="button">품목 엑셀 불러오기</button>
+    <button class="btn" id="masterImportButton" type="button">품목 마스터 엑셀 불러오기</button>
     <button class="btn" id="saveWorkbookButton" type="button">현재 설정 엑셀 저장</button>
     <button class="btn" id="resetButton" type="button">이 브라우저의 데이터 초기화</button>
     <input id="importFile" type="file" accept=".xlsx" hidden>
+    <input id="masterImportFile" type="file" accept=".xlsx" hidden>
     <span class="hint">엑셀은 이 브라우저에서만 처리됩니다. 팀원에게는 저장한 엑셀을 전달하세요.</span>
   </div>
   <p id="fileStatus" class="file-status" role="status" aria-live="polite"></p>
@@ -446,6 +448,34 @@
     }
     return {nextRows,nextMaster,nextDefaults};
   }
+  function readSourceMaster(book){
+    const gon=book.Sheets['고네오'],ant=book.Sheets['안트 로켓그로스'];
+    if(!gon||!ant)throw new Error('고네오·안트 로켓그로스 시트가 모두 필요합니다.');
+    const gonRows=XLSX.utils.sheet_to_json(gon,{header:1,defval:'',raw:true});
+    const antRows=XLSX.utils.sheet_to_json(ant,{header:1,defval:'',raw:true});
+    if(String(gonRows[0]?.[3]).trim()!=='이카운트 품목코드'||String(gonRows[0]?.[5]).trim()!=='상품명'||String(antRows[0]?.[1]).trim()!=='이카운트 품목코드'||String(antRows[0]?.[5]).trim()!=='등록상품명')throw new Error('원본 시트의 열 구성이 예상한 형식과 다릅니다.');
+    const next={디센스:[], '안트(리브인)':[]};
+    let gonMissingCost=0;
+    const seen={디센스:new Set(),'안트(리브인)':new Set()};
+    const add=(brand,row,codeCol,nameCol,inCostCol,costCol,optionCol=-1)=>{
+      const code=String(row[codeCol]??'').trim(),baseName=String(row[nameCol]??'').trim();
+      if(!code&&!baseName)return;
+      if(!code||!baseName)throw new Error(`${brand} 시트에 품목코드 또는 상품명이 비어 있습니다.`);
+      if(seen[brand].has(code))throw new Error(`${brand} 시트에서 품목코드 ${code}가 중복됩니다.`);
+      seen[brand].add(code);
+      const inCost=numberCell(row[inCostCol],0,`${code} 입고원가`,{min:0.01});
+      if(inCost===null)throw new Error(`${code}의 입고원가가 비어 있습니다.`);
+      const sourceCost=numberCell(row[costCol],0,`${code} 관리원가`);
+      if(brand==='디센스'&&sourceCost===0)gonMissingCost++;
+      const cost=sourceCost>0?sourceCost:null;
+      const option=optionCol<0?'':String(row[optionCol]??'').trim();
+      next[brand].push({code,name:option?`${baseName} / ${option}`:baseName,inCost,cost,incomingQty:null,price:null});
+    };
+    for(const row of gonRows.slice(1))add('디센스',row,3,5,6,7);
+    for(const row of antRows.slice(1))add('안트(리브인)',row,1,5,7,8,6);
+    if(!next['디센스'].length||!next['안트(리브인)'].length)throw new Error('두 시트 모두 품목 데이터가 있어야 합니다.');
+    return {next,gonMissingCost};
+  }
   $('#templateButton').addEventListener('click',()=>{XLSX.writeFileXLSX(makeWorkbook(true),'품목별_손익분기_입력양식.xlsx');status('빈 입력 양식을 다운로드했습니다.');});
   $('#saveWorkbookButton').addEventListener('click',()=>{XLSX.writeFileXLSX(makeWorkbook(),'품목별_손익분기_현재설정.xlsx');status('현재 설정을 엑셀로 저장했습니다.');});
   $('#resetButton').addEventListener('click',()=>{
@@ -453,6 +483,17 @@
     state=fresh();master=Object.fromEntries(BRANDS.map(b=>[b,[]]));save();saveMaster();render();status('이 브라우저에 저장된 데이터를 초기화했습니다.');
   });
   $('#importButton').addEventListener('click',()=>$('#importFile').click());
+  $('#masterImportButton').addEventListener('click',()=>$('#masterImportFile').click());
+  $('#masterImportFile').addEventListener('change',async e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    try{
+      if(file.size>20*1024*1024)throw new Error('엑셀 파일은 20MB 이하로 올려 주세요.');
+      const {next,gonMissingCost}=readSourceMaster(XLSX.read(await file.arrayBuffer(),{type:'array'}));
+      master['디센스']=next['디센스'];master['안트(리브인)']=next['안트(리브인)'];
+      saveMaster();renderBrand();
+      status(`품목 마스터: 디센스 ${next['디센스'].length}개, 안트(리브인) ${next['안트(리브인)'].length}개를 저장했습니다. 고네오 A단가 0원 ${gonMissingCost}개는 관리원가 자동계산으로 설정했습니다. 기존 비교표 품목은 유지됩니다.`);
+    }catch(error){status(`마스터 불러오기 실패: ${error.message}`,true);}finally{e.target.value='';}
+  });
   $('#importFile').addEventListener('change',async e=>{
     const file=e.target.files?.[0];if(!file)return;
     try{
